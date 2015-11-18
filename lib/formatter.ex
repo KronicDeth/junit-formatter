@@ -64,8 +64,25 @@ defmodule JUnitFormatter do
   def handle_event({:suite_finished, _run_us, _load_us}, config) do
     # do the real magic
     suites = Enum.map config, &generate_testsuite_xml/1
+    # calculated accumulated stats for root node.  Needed by some CIs, like CircleCI, for proper failure reporting.
+    suites_stats = Enum.reduce(
+      config,
+      %TestCaseStats{},
+      fn ({name, %TestCaseStats{} = suite_stats}, %TestCaseStats{} = accumulated_stats) ->
+        %TestCaseStats{
+          accumulated_stats | errors: accumulated_stats.errors + suite_stats.errors,
+                              failures: accumulated_stats.failures + suite_stats.failures,
+                              tests: accumulated_stats.tests + suite_stats.tests,
+                              time: accumulated_stats.time + suite_stats.time
+        }
+      end
+    )
+
     # wrap result in a root node (not adding any attribute to root)
-    result = :xmerl.export_simple([{:testsuites, [], suites}], :xmerl_xml)
+    result = :xmerl.export_simple([{:testsuites, [errors: suites_stats.errors,
+                                                  failures: suites_stats.failures,
+                                                  tests: suites_stats.tests,
+                                                  time: suites_stats.time], suites}], :xmerl_xml)
 
     # save the report in an xml file
     file = File.open! get_file_name(config), [:write]
